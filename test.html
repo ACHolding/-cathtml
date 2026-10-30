@@ -1,0 +1,298 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cat Invaders 1.0</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #080e20;
+    color: white;
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .game {
+    text-align: center;
+    width: 95%;
+    max-width: 800px;
+  }
+  h1 { color: #60c6ff; }
+  canvas {
+    width: 100%;
+    background: #020713;
+    border: 3px solid #60c6ff;
+    border-radius: 10px;
+  }
+  button {
+    padding: 12px 24px;
+    background: #1683dc;
+    color: white;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<div class="game">
+  <h1>🐱 CAT INVADERS 1.0</h1>
+  <canvas id="screen" width="800" height="550"></canvas>
+  <p>A/D or ←/→ to move | Space to shoot | P to pause</p>
+  <button onclick="restart()">Restart Game</button>
+  <p>© AC Kondo 1999–2026</p>
+</div>
+
+<script>
+const canvas = document.getElementById("screen");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+
+let keys = {};
+let player, enemies, bullets, enemyBullets;
+let score, lives, level, paused, gameOver;
+let enemyDirection, enemyTimer, shootTimer;
+let enemyShootTimer;
+let lastTime = 0;
+
+document.addEventListener("keydown", e => {
+  if (["Space", "ArrowLeft", "ArrowRight"].includes(e.code))
+    e.preventDefault();
+  keys[e.code] = true;
+
+  if (e.code === "KeyP" && !e.repeat && !gameOver)
+    paused = !paused;
+});
+
+document.addEventListener("keyup", e => {
+  keys[e.code] = false;
+});
+
+function createEnemies() {
+  enemies = [];
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 9; col++) {
+      enemies.push({
+        x: 95 + col * 68,
+        y: 75 + row * 48,
+        w: 36,
+        h: 28,
+        alive: true
+      });
+    }
+  }
+  enemyDirection = 1;
+  enemyTimer = 0;
+  enemyShootTimer = 0;
+}
+
+function restart() {
+  player = { x: W/2 - 22, y: H - 65, w: 44, h: 30 };
+  bullets = [];
+  enemyBullets = [];
+  score = 0;
+  lives = 3;
+  level = 1;
+  paused = false;
+  gameOver = false;
+  shootTimer = 0;
+  createEnemies();
+}
+
+function intersects(a, b) {
+  return a.x < b.x + b.w &&
+         a.x + a.w > b.x &&
+         a.y < b.y + b.h &&
+         a.y + a.h > b.y;
+}
+
+function update(dt) {
+  const moveSpeed = 5.5 * dt;
+
+  if (keys.KeyA || keys.ArrowLeft)
+    player.x -= moveSpeed;
+  if (keys.KeyD || keys.ArrowRight)
+    player.x += moveSpeed;
+
+  player.x = Math.max(0, Math.min(W-player.w, player.x));
+
+  shootTimer -= dt;
+
+  if (keys.Space && shootTimer <= 0) {
+    bullets.push({
+      x: player.x + player.w/2 - 3,
+      y: player.y,
+      w: 6,
+      h: 16
+    });
+    shootTimer = 12;
+  }
+
+  for (const b of bullets)
+    b.y -= 9 * dt;
+
+  for (const b of enemyBullets)
+    b.y += (4 + level * 0.4) * dt;
+
+  bullets = bullets.filter(b => b.y + b.h > 0);
+  enemyBullets = enemyBullets.filter(b => b.y < H);
+
+  // Enemy movement
+  enemyTimer += dt;
+  const stepDelay = Math.max(5, 25 - level * 2);
+
+  if (enemyTimer >= stepDelay) {
+    enemyTimer = 0;
+    const alive = enemies.filter(e => e.alive);
+
+    let hitEdge = alive.some(e =>
+      e.x + enemyDirection * 12 < 10 ||
+      e.x + e.w + enemyDirection * 12 > W - 10
+    );
+
+    if (hitEdge) {
+      enemyDirection *= -1;
+      for (const e of alive) e.y += 18;
+    } else {
+      for (const e of alive)
+        e.x += enemyDirection * 12;
+    }
+  }
+
+  // Enemy shooting
+  enemyShootTimer += dt;
+  if (enemyShootTimer > Math.max(18, 65 - level*5)) {
+    enemyShootTimer = 0;
+    const alive = enemies.filter(e => e.alive);
+    if (alive.length) {
+      const e = alive[Math.floor(Math.random()*alive.length)];
+      enemyBullets.push({
+        x: e.x + e.w/2 - 3,
+        y: e.y + e.h,
+        w: 6,
+        h: 14
+      });
+    }
+  }
+
+  // Player bullets vs enemies
+  for (const b of bullets) {
+    for (const e of enemies) {
+      if (e.alive && intersects(b, e)) {
+        e.alive = false;
+        b.y = -100;
+        score += 10;
+        break;
+      }
+    }
+  }
+
+  // Enemy bullets vs player
+  for (const b of enemyBullets) {
+    if (intersects(b, player)) {
+      b.y = H + 100;
+      lives--;
+      if (lives <= 0) gameOver = true;
+    }
+  }
+
+  // Enemies reaching player
+  if (enemies.some(e => e.alive &&
+      e.y + e.h >= player.y)) {
+    gameOver = true;
+  }
+
+  // Next wave
+  if (!enemies.some(e => e.alive)) {
+    level++;
+    bullets = [];
+    enemyBullets = [];
+    createEnemies();
+  }
+}
+
+function draw() {
+  ctx.fillStyle = "#020713";
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  ctx.fillStyle = "#40516c";
+  for (let i = 0; i < 65; i++) {
+    const x = (i * 137 + 23) % W;
+    const y = (i * 79 + 41) % H;
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  // HUD
+  ctx.fillStyle = "white";
+  ctx.font = "20px monospace";
+  ctx.textAlign = "left";
+  ctx.fillText("SCORE: " + score, 20, 30);
+  ctx.fillText("LIVES: " + lives, 330, 30);
+  ctx.fillText("LEVEL: " + level, 620, 30);
+
+  // Player ship
+  ctx.fillStyle = "#5ac8ff";
+  ctx.fillRect(player.x, player.y+12, player.w, 18);
+  ctx.fillRect(player.x+17, player.y, 10, 18);
+
+  // Invaders
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    ctx.fillStyle = "#ff6b91";
+    ctx.fillRect(e.x+6, e.y, 24, 8);
+    ctx.fillRect(e.x, e.y+8, 36, 13);
+    ctx.fillRect(e.x+5, e.y+21, 7, 7);
+    ctx.fillRect(e.x+24, e.y+21, 7, 7);
+
+    ctx.fillStyle = "#020713";
+    ctx.fillRect(e.x+9, e.y+12, 5, 5);
+    ctx.fillRect(e.x+22, e.y+12, 5, 5);
+  }
+
+  ctx.fillStyle = "#75e9ff";
+  for (const b of bullets)
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+
+  ctx.fillStyle = "#ffb347";
+  for (const b of enemyBullets)
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+
+  if (paused || gameOver) {
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 42px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(gameOver ? "GAME OVER" : "PAUSED",
+                 W/2, H/2);
+    if (gameOver) {
+      ctx.font = "24px Arial";
+      ctx.fillText("Final Score: " + score,
+                   W/2, H/2 + 45);
+    }
+  }
+}
+
+function loop(time) {
+  const dt = lastTime
+    ? Math.min((time-lastTime)/(1000/60), 2)
+    : 1;
+  lastTime = time;
+
+  if (!paused && !gameOver) update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+restart();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
